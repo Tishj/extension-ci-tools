@@ -12,13 +12,15 @@
 #	DEFAULT_TEST_EXTENSION_DEPS : `;`-separated list of extensions that are built in `default` and `full` mode
 #	FULL_TEST_EXTENSION_DEPS    : `;`-separated list of extensions that are built in `full` mode
 
-.PHONY: all clean clean-python clangd format debug release pull update wasm_mvp wasm_eh wasm_threads test test_release test_debug test_reldebug test_release_internal test_debug_internal test_reldebug_internal set_duckdb_version set_duckdb_tag  output_distribution_matrix
+.PHONY: all clean clean-python clangd format debug release pull update wasm_mvp wasm_eh wasm_threads test test_release test_debug test_reldebug test_release_internal test_debug_internal test_reldebug_internal set_duckdb_version set_duckdb_tag output_distribution_matrix sync_out_of_tree_extensions
 
 all: release
 
 TEST_PATH=test/unittest
 
 DUCKDB_SRCDIR ?= ./duckdb
+PROJ_DIR ?= .
+SYNC_OUTPUT_DIR ?= build
 
 TESTS_BASE_DIRECTORY ?= test/
 
@@ -310,6 +312,9 @@ set_duckdb_tag:
 
 output_distribution_matrix:
 	cat duckdb/.github/config/distribution_matrix.json
+
+sync_out_of_tree_extensions:
+	$(MAKE) -C $(DUCKDB_SRCDIR) sync_out_of_tree_extensions PROJ_DIR="$(abspath $(PROJ_DIR))" $(if $(BUILD_EXTENSIONS),BUILD_EXTENSIONS="$(BUILD_EXTENSIONS)") $(if $(EXTENSION_CONFIGS),EXTENSION_CONFIGS="$(EXTENSION_CONFIGS)") $(if $(SYNC_OUTPUT_DIR),SYNC_OUTPUT_DIR="$(SYNC_OUTPUT_DIR)")
 
 configure_ci:
 	@echo "configure_ci step is skipped for this extension build..."
