@@ -20,6 +20,7 @@ TEST_PATH=test/unittest
 
 DUCKDB_SRCDIR ?= ./duckdb
 PROJ_DIR ?= .
+PROJ_DIR_ABS := $(abspath $(PROJ_DIR))/
 SYNC_OUTPUT_DIR ?= build
 
 TESTS_BASE_DIRECTORY ?= test/
@@ -314,7 +315,7 @@ output_distribution_matrix:
 	cat duckdb/.github/config/distribution_matrix.json
 
 sync_out_of_tree_extensions:
-	$(MAKE) -C $(DUCKDB_SRCDIR) sync_out_of_tree_extensions PROJ_DIR="$(abspath $(PROJ_DIR))" $(if $(BUILD_EXTENSIONS),BUILD_EXTENSIONS="$(BUILD_EXTENSIONS)") $(if $(EXTENSION_CONFIGS),EXTENSION_CONFIGS="$(EXTENSION_CONFIGS)") $(if $(SYNC_OUTPUT_DIR),SYNC_OUTPUT_DIR="$(SYNC_OUTPUT_DIR)")
+	$(MAKE) -C $(DUCKDB_SRCDIR) sync_out_of_tree_extensions PROJ_DIR="$(PROJ_DIR_ABS)" $(if $(BUILD_EXTENSIONS),BUILD_EXTENSIONS="$(BUILD_EXTENSIONS)") $(if $(EXTENSION_CONFIGS),EXTENSION_CONFIGS="$(EXTENSION_CONFIGS)") $(if $(SYNC_OUTPUT_DIR),SYNC_OUTPUT_DIR="$(SYNC_OUTPUT_DIR)")
 
 configure_ci:
 	@echo "configure_ci step is skipped for this extension build..."
