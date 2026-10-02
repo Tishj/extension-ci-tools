@@ -132,7 +132,16 @@ class DuckDBExtensionMakefileTest(unittest.TestCase):
                 sync = self.sync_command(commands)
                 configure = self.configure_command(commands)
                 self.assertLess(commands.index(sync), commands.index(configure))
-                self.assertIn(f"-DVCPKG_MANIFEST_DIR={self.project}/build", configure)
+                directory = ".cache/clangd/debug" if target == "clangd" else f"build/{target}"
+                self.assertIn(f"-DVCPKG_MANIFEST_DIR={self.project}/{directory}", configure)
+                discovery_args = sync[sync.index("--cmake-args") + 1 :]
+                if target.startswith("wasm"):
+                    self.assertEqual(sync[sync.index("--cmake-command") + 1], "emcmake")
+                    self.assertEqual(discovery_args.pop(0), "cmake")
+                    configure = configure[1:]
+                configure_args = configure[1 : configure.index("-S")]
+                configure_args.remove(f"-DVCPKG_MANIFEST_DIR={self.project}/{directory}")
+                self.assertEqual(discovery_args, configure_args)
                 self.assertFalse(any("-DEXTENSION_CONFIG_BUILD=TRUE" in command for command in commands))
 
     def test_empty_selection_and_default_directory_do_not_add_sync_overrides(self):
@@ -141,6 +150,19 @@ class DuckDBExtensionMakefileTest(unittest.TestCase):
         self.assertNotIn("--build-extensions", sync)
         self.assertNotIn("--extension-config-base-dir", sync)
         self.assertFalse(any(arg.startswith("-DBUILD_EXTENSIONS=") for arg in self.configure_command(commands)))
+
+    def test_multiple_targets_discover_separately_with_their_build_flags(self):
+        self.write_makefile(
+            "EXT_DEBUG_FLAGS := -DDEPENDENCY_VARIANT=debug\nEXT_RELEASE_FLAGS := -DDEPENDENCY_VARIANT=release"
+        )
+        commands = self.commands(target="debug", variables=["release", "DUCKDB_NEW_EXTENSION_BUILD=1"])
+        syncs = [
+            command for command in commands if any(arg.endswith("/sync_out_of_tree_extensions.py") for arg in command)
+        ]
+        self.assertEqual(len(syncs), 2)
+        for command, variant in zip(syncs, ("debug", "release")):
+            self.assertIn(f"-DDEPENDENCY_VARIANT={variant}", command)
+            self.assertEqual(command[command.index("--output-dir") + 1], f"{self.project}/build/{variant}")
 
     def test_legacy_merged_manifest_workflow_is_preserved(self):
         commands = self.commands(variables=["USE_MERGED_VCPKG_MANIFEST=1"])
@@ -159,7 +181,9 @@ class DuckDBExtensionMakefileTest(unittest.TestCase):
             "import json, os, pathlib, sys\n"
             "with open(os.environ['COMMAND_LOG'], 'a') as log:\n"
             "    log.write(json.dumps(['sync', sys.argv[1:], os.environ.get('DUCKDB_NEW_EXTENSION_BUILD')]) + '\\n')\n"
-            "pathlib.Path('build/vcpkg.json').write_text('{\"dependencies\": []}')\n"
+            "output = pathlib.Path(sys.argv[sys.argv.index('--output-dir') + 1])\n"
+            "output.mkdir(parents=True, exist_ok=True)\n"
+            "(output / 'vcpkg.json').write_text('{\"dependencies\": []}')\n"
         )
         binaries = self.project / "bin"
         binaries.mkdir()
@@ -167,7 +191,7 @@ class DuckDBExtensionMakefileTest(unittest.TestCase):
         cmake.write_text(
             f"#!{sys.executable}\n"
             "import json, os, pathlib, sys\n"
-            "assert pathlib.Path('build/vcpkg.json').exists()\n"
+            "assert pathlib.Path('build/reldebug/vcpkg.json').exists()\n"
             "with open(os.environ['COMMAND_LOG'], 'a') as log:\n"
             "    log.write(json.dumps(['cmake', sys.argv[1:], os.environ.get('DUCKDB_NEW_EXTENSION_BUILD')]) + '\\n')\n"
         )

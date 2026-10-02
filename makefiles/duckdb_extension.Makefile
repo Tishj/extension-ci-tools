@@ -100,10 +100,10 @@ ifdef DUCKDB_NEW_EXTENSION_BUILD
 	export DUCKDB_NEW_EXTENSION_BUILD
 	# New-style build: out-of-tree extensions are pre-cloned into duckdb/extension/external
 	# and their merged vcpkg manifest (including this extension's own vcpkg.json) is written
-	# to build/ before cmake configures, so vcpkg picks it up at project() time.
-	EXTENSION_CONFIG_STEP= sync_oot_extensions
-	EXTENSION_CONFIG_STEP_WASM= sync_oot_extensions
-	VCPKG_MANIFEST_FLAGS:=-DVCPKG_MANIFEST_DIR='${PROJ_DIR}build'
+	# to each target's build directory before cmake configures.
+	EXTENSION_CONFIG_STEP=
+	EXTENSION_CONFIG_STEP_WASM=
+	VCPKG_MANIFEST_FLAGS:=
 else ifeq (${USE_MERGED_VCPKG_MANIFEST}, 1)
 	EXTENSION_CONFIG_STEP= build/extension_configuration/vcpkg.json
 	EXTENSION_CONFIG_STEP_WASM=extension_configuration_wasm
@@ -188,27 +188,34 @@ ifneq ($(TIDY_CHECKS),)
         TIDY_PERFORM_CHECKS := '-checks=${TIDY_CHECKS}'
 endif
 
+# Discovery and configuration receive the same flags, including the target toolchain.
+SYNC_EXTENSION_COMMAND = $(PYTHON) "$(DUCKDB_SRCDIR)/scripts/sync_out_of_tree_extensions.py" $(if $(EXTENSION_BUILD_EXTENSIONS),--build-extensions "$(EXTENSION_BUILD_EXTENSIONS)") --extension-configs '$(EXTENSION_CONFIGS)' $(if $(EXTENSION_CONFIG_BASE_DIR),--extension-config-base-dir '$(EXTENSION_CONFIG_BASE_DIR)')
+define configure_extension
+$(if $(DUCKDB_NEW_EXTENSION_BUILD),$(SYNC_EXTENSION_COMMAND) --output-dir '$(PROJ_DIR)$(2)' $(if $(3),--cmake-command $(3)) --cmake-args $(if $(3),cmake) $(1))
+$(3) cmake $(1) $(if $(DUCKDB_NEW_EXTENSION_BUILD),-DVCPKG_MANIFEST_DIR='$(PROJ_DIR)$(2)',$(VCPKG_MANIFEST_FLAGS)) -S $(DUCKDB_SRCDIR) -B $(2)
+endef
+
 clangd: ${EXTENSION_CONFIG_STEP}
-	cmake $(GENERATOR) $(BUILD_FLAGS) $(EXT_DEBUG_FLAGS) $(VCPKG_MANIFEST_FLAGS) -DCMAKE_BUILD_TYPE=Debug -S $(DUCKDB_SRCDIR) -B .cache/clangd/debug
+	$(call configure_extension,$(GENERATOR) $(BUILD_FLAGS) $(EXT_DEBUG_FLAGS) -DCMAKE_BUILD_TYPE=Debug,.cache/clangd/debug)
 
 debug: ${EXTENSION_CONFIG_STEP}
 	mkdir -p build/debug
-	cmake $(GENERATOR) $(BUILD_FLAGS) $(EXT_DEBUG_FLAGS) $(VCPKG_MANIFEST_FLAGS) -DCMAKE_BUILD_TYPE=Debug -S $(DUCKDB_SRCDIR) -B build/debug
+	$(call configure_extension,$(GENERATOR) $(BUILD_FLAGS) $(EXT_DEBUG_FLAGS) -DCMAKE_BUILD_TYPE=Debug,build/debug)
 	cmake --build build/debug --config Debug
 
 release: ${EXTENSION_CONFIG_STEP}
 	mkdir -p build/release
-	cmake $(GENERATOR) $(BUILD_FLAGS) $(EXT_RELEASE_FLAGS) $(VCPKG_MANIFEST_FLAGS) -DCMAKE_BUILD_TYPE=Release -S $(DUCKDB_SRCDIR) -B build/release
+	$(call configure_extension,$(GENERATOR) $(BUILD_FLAGS) $(EXT_RELEASE_FLAGS) -DCMAKE_BUILD_TYPE=Release,build/release)
 	cmake --build build/release --config Release
 
 relassert: ${EXTENSION_CONFIG_STEP}
 	mkdir -p build/relassert
-	cmake $(GENERATOR) $(BUILD_FLAGS) $(EXT_RELEASE_FLAGS) $(VCPKG_MANIFEST_FLAGS) -DCMAKE_BUILD_TYPE=RelWithDebInfo -S $(DUCKDB_SRCDIR) -DFORCE_ASSERT=1 -B build/relassert
+	$(call configure_extension,$(GENERATOR) $(BUILD_FLAGS) $(EXT_RELEASE_FLAGS) -DCMAKE_BUILD_TYPE=RelWithDebInfo -DFORCE_ASSERT=1,build/relassert)
 	cmake --build build/relassert --config RelWithDebInfo
 
 reldebug: ${EXTENSION_CONFIG_STEP}
 	mkdir -p build/reldebug
-	cmake $(GENERATOR) $(BUILD_FLAGS) $(EXT_RELEASE_FLAGS) $(VCPKG_MANIFEST_FLAGS) -DCMAKE_BUILD_TYPE=RelWithDebInfo -S $(DUCKDB_SRCDIR) -B build/reldebug
+	$(call configure_extension,$(GENERATOR) $(BUILD_FLAGS) $(EXT_RELEASE_FLAGS) -DCMAKE_BUILD_TYPE=RelWithDebInfo,build/reldebug)
 	cmake --build build/reldebug
 
 # Main tests
@@ -258,17 +265,17 @@ wasm_pre_build_step:
 # WASM targets
 wasm_mvp: wasm_pre_build_step ${EXTENSION_CONFIG_STEP_WASM}
 	mkdir -p build/wasm_mvp
-	emcmake cmake $(GENERATOR) $(EXTENSION_CONFIG_FLAG) $(VCPKG_MANIFEST_FLAGS) $(WASM_COMPILE_TIME_COMMON_FLAGS) $(BUILD_FLAGS) -Bbuild/wasm_mvp -DCMAKE_CXX_FLAGS="$(WASM_CXX_MVP_FLAGS)" -S $(DUCKDB_SRCDIR) -DDUCKDB_EXPLICIT_PLATFORM=wasm_mvp -DDUCKDB_CUSTOM_PLATFORM=wasm_mvp
+	$(call configure_extension,$(GENERATOR) $(WASM_COMPILE_TIME_COMMON_FLAGS) $(BUILD_FLAGS) -DCMAKE_CXX_FLAGS="$(WASM_CXX_MVP_FLAGS)" -DDUCKDB_EXPLICIT_PLATFORM=wasm_mvp -DDUCKDB_CUSTOM_PLATFORM=wasm_mvp,build/wasm_mvp,emcmake)
 	emmake make -j8 -Cbuild/wasm_mvp
 
 wasm_eh: wasm_pre_build_step ${EXTENSION_CONFIG_STEP_WASM}
 	mkdir -p build/wasm_eh
-	emcmake cmake $(GENERATOR) $(EXTENSION_CONFIG_FLAG) $(VCPKG_MANIFEST_FLAGS) $(WASM_COMPILE_TIME_COMMON_FLAGS) $(BUILD_FLAGS) -Bbuild/wasm_eh -DCMAKE_CXX_FLAGS="$(WASM_CXX_EH_FLAGS)" -S $(DUCKDB_SRCDIR) -DDUCKDB_EXPLICIT_PLATFORM=wasm_eh -DDUCKDB_CUSTOM_PLATFORM=wasm_eh
+	$(call configure_extension,$(GENERATOR) $(WASM_COMPILE_TIME_COMMON_FLAGS) $(BUILD_FLAGS) -DCMAKE_CXX_FLAGS="$(WASM_CXX_EH_FLAGS)" -DDUCKDB_EXPLICIT_PLATFORM=wasm_eh -DDUCKDB_CUSTOM_PLATFORM=wasm_eh,build/wasm_eh,emcmake)
 	emmake make -j8 -Cbuild/wasm_eh
 
 wasm_threads: wasm_pre_build_step ${EXTENSION_CONFIG_STEP_WASM}
 	mkdir -p ./build/wasm_threads
-	emcmake cmake $(GENERATOR) $(EXTENSION_CONFIG_FLAG) $(VCPKG_MANIFEST_FLAGS) $(WASM_COMPILE_TIME_COMMON_FLAGS) $(BUILD_FLAGS) -Bbuild/wasm_threads -DCMAKE_CXX_FLAGS="$(WASM_CXX_THREADS_FLAGS)" -S $(DUCKDB_SRCDIR) -DDUCKDB_EXPLICIT_PLATFORM=wasm_threads -DDUCKDB_CUSTOM_PLATFORM=wasm_threads
+	$(call configure_extension,$(GENERATOR) $(WASM_COMPILE_TIME_COMMON_FLAGS) $(BUILD_FLAGS) -DCMAKE_CXX_FLAGS="$(WASM_CXX_THREADS_FLAGS)" -DDUCKDB_EXPLICIT_PLATFORM=wasm_threads -DDUCKDB_CUSTOM_PLATFORM=wasm_threads,build/wasm_threads,emcmake)
 	emmake make -j8 -Cbuild/wasm_threads
 
 
@@ -296,8 +303,7 @@ build/extension_configuration/vcpkg.json: ${EXTENSION_CONFIG_TARGET}
 # New-style out-of-tree extension sync: clone/patch out-of-tree extensions into
 # duckdb/extension/external and write the merged vcpkg manifest into build/.
 sync_oot_extensions:
-	mkdir -p '${PROJ_DIR}build'
-	$(PYTHON) "$(DUCKDB_SRCDIR)/scripts/sync_out_of_tree_extensions.py" $(if $(EXTENSION_BUILD_EXTENSIONS),--build-extensions "$(EXTENSION_BUILD_EXTENSIONS)") --extension-configs '$(EXTENSION_CONFIGS)' $(if $(EXTENSION_CONFIG_BASE_DIR),--extension-config-base-dir '$(EXTENSION_CONFIG_BASE_DIR)') --output-dir '${PROJ_DIR}build'
+	$(SYNC_EXTENSION_COMMAND) --output-dir '$(PROJ_DIR)build' --cmake-args $(GENERATOR) $(BUILD_FLAGS)
 
 #### Misc
 format-check:

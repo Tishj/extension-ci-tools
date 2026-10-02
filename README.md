@@ -53,8 +53,8 @@ EXTRA_EXTENSION_CONFIGS := $(PROJ_DIR)extension_overrides.cmake
 
 The wrapper passes the same extension selection, config list, and config directory
 to DuckDB's sync script and CMake. Sync populates `duckdb/extension/external/` and
-writes the combined vcpkg manifest to the extension project's `build/vcpkg.json`
-before configuration. New mode takes precedence over `USE_MERGED_VCPKG_MANIFEST`,
+writes the combined vcpkg manifest into the target's build directory before configuration.
+New mode takes precedence over `USE_MERGED_VCPKG_MANIFEST`,
 including for WebAssembly targets. The previous build flow remains available when
 `DUCKDB_NEW_EXTENSION_BUILD` is unset.
 
@@ -68,7 +68,15 @@ set `EXTENSION_CONFIGS` to supply the complete semicolon-separated config list.
 Include the project's own config in that list so its extension and vcpkg dependencies
 are retained. With the updated DuckDB loader, explicit configs take precedence over
 named defaults, and the first declaration of an extension wins. Use these configs
-to control `GIT_URL` and literal `GIT_TAG` hashes.
+to control `GIT_URL` and `GIT_TAG` hashes.
+
+Before syncing, a lightweight CMake discovery step evaluates the configs using the
+same flags and toolchain as the build, with vcpkg installation disabled. Keep platform
+conditions such as `if(NOT EMSCRIPTEN AND NOT MINGW)` in named configs and select their
+names through `BUILD_EXTENSIONS` or `DEFAULT_TEST_EXTENSION_DEPS`. Both discovery and
+the build evaluate those conditions; Make does not need its own platform detection.
+Compiler detection is cached in each target's `extension-discovery` subdirectory.
+This requires a DuckDB revision supporting `--cmake-args`.
 
 `EXTENSION_CONFIG_BASE_DIR` is optional. It replaces DuckDB's default directory of
 `<extension>.cmake` files for named lookups. Use absolute config paths, as in the
